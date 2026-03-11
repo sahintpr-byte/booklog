@@ -106,28 +106,28 @@ async function searchBooks(){
   const res=document.getElementById('searchResults');
   res.innerHTML='<div class="loading"><div class="spinner"></div>'+t('searching')+'</div>';
   try{
-    // Open Library Search API — no key required, supports all languages
-    const r=await fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(q)+'&limit=20&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,isbn');
+    const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(q)+'&maxResults=20&key=AIzaSyAGDcIi4P_phJ8qH-JP92m6_VZ_d5ZecL4');
     const data=await r.json();
-    if(!data.docs||!data.docs.length){res.innerHTML='<div class="loading">'+t('noResults')+'</div>';return;}
+    if(!data.items||!data.items.length){res.innerHTML='<div class="loading">'+t('noResults')+'</div>';return;}
     const {data:added}=await sb.from('book_lists').select('book_id').eq('user_id',currentUser.id);
     const addedIds=new Set((added||[]).map(r=>r.book_id));
-    res.innerHTML='<div class="results-label">'+data.docs.length+t('resultsLabel')+'</div>';
+    res.innerHTML='<div class="results-label">'+data.items.length+t('resultsLabel')+'</div>';
     const grid=document.createElement('div');grid.className='results-grid';
-    data.docs.forEach(doc=>{
-      const bookId=doc.key.replace('/works/','');
-      const isAdded=addedIds.has(bookId);
-      const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-M.jpg':'';
-      const authors=(doc.author_name||[]).slice(0,2).join(', ')||'—';
-      const year=doc.first_publish_year||'—';
+    data.items.forEach(item=>{
+      const info=item.volumeInfo||{};
+      const isAdded=addedIds.has(item.id);
+      const cover=(info.imageLinks?.thumbnail||info.imageLinks?.smallThumbnail||'').replace('http:','https:');
+      const authors=(info.authors||[]).slice(0,2).join(', ')||'—';
+      const year=info.publishedDate?info.publishedDate.slice(0,4):'—';
+      const rating=info.averageRating;
       const card=document.createElement('div');card.className='book-card';
       card.innerHTML=(cover?'<img class="book-card-cover" src="'+cover+'" alt="" loading="lazy">':'<div class="book-card-cover-placeholder">📖</div>')+
         '<div class="book-card-body">'+
-          '<div class="book-card-title">'+doc.title+'</div>'+
-          '<div class="book-card-author">'+authors+' · '+year+'</div>'+
+          '<div class="book-card-title">'+info.title+'</div>'+
+          '<div class="book-card-author">'+authors+' · '+year+(rating?' · ⭐'+rating:'')+'</div>'+
           '<button class="btn-add'+(isAdded?' added':'')+'">'+( isAdded?t('addedBtn'):t('addBtn'))+'</button>'+
         '</div>';
-      if(!isAdded)card.querySelector('.btn-add').onclick=()=>openModal(doc);
+      if(!isAdded)card.querySelector('.btn-add').onclick=()=>openModal(item);
       grid.appendChild(card);
     });
     res.appendChild(grid);
@@ -141,17 +141,19 @@ document.getElementById('modalCancel').onclick=closeModal;
 document.getElementById('saveBtn').onclick=saveBook;
 document.getElementById('scoreSlider').oninput=function(){document.getElementById('scoreDisplay').innerHTML=this.value+'<span>/10</span>';};
 
-function openModal(doc){
-  currentBook=doc;
-  const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-M.jpg':'';
-  const authors=(doc.author_name||[]).slice(0,2).join(', ')||'';
-  const year=doc.first_publish_year||'';
-  const pages=doc.number_of_pages_median||0;
-  const subject=(doc.subject||[])[0]||'';
+function openModal(item){
+  currentBook=item;
+  const info=item.volumeInfo||{};
+  const cover=(info.imageLinks?.thumbnail||info.imageLinks?.smallThumbnail||'').replace('http:','https:');
+  const authors=(info.authors||[]).slice(0,2).join(', ')||'';
+  const year=info.publishedDate?info.publishedDate.slice(0,4):'';
+  const pages=info.pageCount||0;
+  const category=(info.categories||[])[0]||'';
+  const rating=info.averageRating?'⭐ '+info.averageRating+'/5 ('+( info.ratingsCount||0)+' oy)':'';
   document.getElementById('modalCover').src=cover;
-  document.getElementById('modalTitle').textContent=doc.title||'';
+  document.getElementById('modalTitle').textContent=info.title||'';
   document.getElementById('modalAuthor').textContent=authors;
-  document.getElementById('modalMeta').textContent=(year?year:'')+(pages?' · '+pages+' sayfa':'')+(subject?' · '+subject:'');
+  document.getElementById('modalMeta').textContent=[year,pages?pages+' sayfa':'',category,rating].filter(Boolean).join(' · ');
   document.getElementById('scoreSlider').value=7;
   document.getElementById('scoreDisplay').innerHTML='7<span>/10</span>';
   document.getElementById('notesInput').value='';
@@ -172,23 +174,21 @@ function populateListSelect(sel){
 
 async function saveBook(){
   if(!currentBook)return;
-  const doc=currentBook;
+  const item=currentBook;
+  const info=item.volumeInfo||{};
   const score=parseInt(document.getElementById('scoreSlider').value);
   const notes=document.getElementById('notesInput').value.trim();
   const listId=document.getElementById('listSelect').value;
-  const bookId=doc.key?doc.key.replace('/works/',''):doc.book_id||'';
-  const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-M.jpg':(doc.book_image||'');
-  const authors=(doc.author_name||[]).slice(0,2).join(', ')||(doc.book_author||'');
+  const cover=(info.imageLinks?.thumbnail||info.imageLinks?.smallThumbnail||'').replace('http:','https:');
   const {error}=await sb.from('book_lists').upsert({
-    user_id:currentUser.id,book_id:bookId,list_id:listId,
-    book_title:doc.title||doc.book_title||'',book_author:authors,
-    book_image:cover,published_year:doc.first_publish_year?(doc.first_publish_year+''):(doc.published_year||''),
-    categories:doc.subject?doc.subject.slice(0,3):(doc.categories||[]),
-    page_count:doc.number_of_pages_median||doc.page_count||0,
+    user_id:currentUser.id,book_id:item.id,list_id:listId,
+    book_title:info.title||'',book_author:(info.authors||[]).slice(0,2).join(', '),
+    book_image:cover,published_year:info.publishedDate?info.publishedDate.slice(0,4):'',
+    categories:info.categories||[],page_count:info.pageCount||0,
     score,notes
   },{onConflict:'user_id,book_id'});
   if(error){toast('Error: '+error.message);return;}
-  closeModal();toast('"'+(doc.title||doc.book_title)+t('toastAdded'));
+  closeModal();toast('"'+info.title+t('toastAdded'));
   if(activeListId===listId)renderList(null,currentUser.id,false,activeListId);
   renderListsNav();
 }
@@ -533,16 +533,16 @@ async function importList(event){
     const score=Math.min(10,Math.max(1,parseInt(row[scoreKey])||5));
     const noteKey=Object.keys(row).find(k=>/not|note|comment/i.test(k));
     try{
-      const r=await fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(bookTitle)+'&limit=1&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject');
-      const d=await r.json();const doc=d.docs&&d.docs[0];
-      if(!doc){skipped++;continue;}
-      const bookId=doc.key.replace('/works/','');
-      const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-M.jpg':'';
+      const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(bookTitle)+'&maxResults=1&key=AIzaSyAGDcIi4P_phJ8qH-JP92m6_VZ_d5ZecL4');
+      const d=await r.json();const item=d.items&&d.items[0];
+      if(!item){skipped++;continue;}
+      const info=item.volumeInfo||{};
+      const cover=(info.imageLinks?.thumbnail||'').replace('http:','https:');
       await sb.from('book_lists').upsert({
-        user_id:currentUser.id,book_id:bookId,list_id:activeListId,
-        book_title:doc.title||bookTitle,book_author:(doc.author_name||[]).slice(0,2).join(', '),
-        book_image:cover,published_year:doc.first_publish_year?(doc.first_publish_year+''):'',
-        categories:doc.subject?doc.subject.slice(0,3):[],page_count:doc.number_of_pages_median||0,
+        user_id:currentUser.id,book_id:item.id,list_id:activeListId,
+        book_title:info.title||bookTitle,book_author:(info.authors||[]).slice(0,2).join(', '),
+        book_image:cover,published_year:info.publishedDate?info.publishedDate.slice(0,4):'',
+        categories:info.categories||[],page_count:info.pageCount||0,
         score,notes:noteKey?row[noteKey]:''
       },{onConflict:'user_id,book_id'});imported++;
     }catch(e){skipped++;}

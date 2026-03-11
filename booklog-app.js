@@ -110,7 +110,48 @@ function switchView(v){
 
 /* ── SEARCH ── */
 document.getElementById('searchBtn').onclick=searchBooks;
-document.getElementById('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter')searchBooks();});
+document.getElementById('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){closeDropdown();searchBooks();}});
+document.getElementById('searchInput').addEventListener('input',debounce(liveSearchBooks,400));
+document.getElementById('searchInput').addEventListener('blur',()=>setTimeout(closeDropdown,200));
+
+let _searchTimer=null;
+function debounce(fn,ms){return function(...args){clearTimeout(_searchTimer);_searchTimer=setTimeout(()=>fn(...args),ms);};}
+function closeDropdown(){const d=document.getElementById('searchDropdown');if(d)d.remove();}
+
+async function liveSearchBooks(){
+  const q=document.getElementById('searchInput').value.trim();
+  closeDropdown();
+  if(q.length<2)return;
+  try{
+    const r=await fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(q)+'&limit=6&fields=key,title,author_name,first_publish_year,cover_i');
+    const data=await r.json();
+    if(!data.docs||!data.docs.length)return;
+    const inp=document.getElementById('searchInput');
+    const rect=inp.getBoundingClientRect();
+    const drop=document.createElement('div');
+    drop.id='searchDropdown';
+    drop.style.cssText='position:fixed;top:'+(rect.bottom+4)+'px;left:'+rect.left+'px;width:'+rect.width+'px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:500;overflow:hidden;max-height:320px;overflow-y:auto;';
+    data.docs.forEach(doc=>{
+      const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-S.jpg':'';
+      const author=(doc.author_name||[])[0]||'';
+      const year=doc.first_publish_year||'';
+      const item=document.createElement('div');
+      item.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s;';
+      item.innerHTML=(cover?'<img src="'+cover+'" style="width:32px;height:46px;object-fit:cover;border-radius:4px;flex-shrink:0">':'<div style="width:32px;height:46px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">📖</div>')+
+        '<div style="min-width:0"><div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+doc.title+'</div>'+
+        '<div style="font-size:12px;color:var(--muted)">'+[author,year].filter(Boolean).join(' · ')+'</div></div>';
+      item.onmouseenter=()=>item.style.background='var(--surface2)';
+      item.onmouseleave=()=>item.style.background='';
+      item.onmousedown=()=>{
+        document.getElementById('searchInput').value=doc.title;
+        closeDropdown();
+        searchBooks();
+      };
+      drop.appendChild(item);
+    });
+    document.body.appendChild(drop);
+  }catch(e){}
+}
 
 async function searchBooks(){
   const q=document.getElementById('searchInput').value.trim();if(!q)return;

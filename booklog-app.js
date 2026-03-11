@@ -106,7 +106,7 @@ async function searchBooks(){
   const res=document.getElementById('searchResults');
   res.innerHTML='<div class="loading"><div class="spinner"></div>'+t('searching')+'</div>';
   try{
-    const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(q)+'&maxResults=20&key=AIzaSyAHePb6lb12dPoqNijdKuYf6BF0ouiDQWg');
+    const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(q)+'&maxResults=20&key=AIzaSyAGDcIi4P_phJ8qH-JP92m6_VZ_d5ZecL4');
     const data=await r.json();
     if(!data.items||!data.items.length){res.innerHTML='<div class="loading">'+t('noResults')+'</div>';return;}
     const {data:added}=await sb.from('book_lists').select('book_id').eq('user_id',currentUser.id);
@@ -141,19 +141,18 @@ document.getElementById('modalCancel').onclick=closeModal;
 document.getElementById('saveBtn').onclick=saveBook;
 document.getElementById('scoreSlider').oninput=function(){document.getElementById('scoreDisplay').innerHTML=this.value+'<span>/10</span>';};
 
-function openModal(item){
-  currentBook=item;
-  const info=item.volumeInfo||{};
-  const cover=(info.imageLinks?.thumbnail||info.imageLinks?.smallThumbnail||'').replace('http:','https:');
-  const authors=(info.authors||[]).slice(0,2).join(', ')||'';
-  const year=info.publishedDate?info.publishedDate.slice(0,4):'';
-  const pages=info.pageCount||0;
-  const category=(info.categories||[])[0]||'';
-  const rating=info.averageRating?'⭐ '+info.averageRating+'/5 ('+( info.ratingsCount||0)+' oy)':'';
+function openModal(doc){
+  currentBook=doc;
+  const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-L.jpg':'';
+  const authors=(doc.author_name||[]).slice(0,2).join(', ')||'';
+  const year=doc.first_publish_year||'';
+  const pages=doc.number_of_pages_median||0;
+  const subject=(doc.subject||[])[0]||'';
+  const rating=doc.ratings_average?'⭐ '+doc.ratings_average.toFixed(1)+'/5 ('+(doc.ratings_count||0).toLocaleString()+' oy)':'';
   document.getElementById('modalCover').src=cover;
-  document.getElementById('modalTitle').textContent=info.title||'';
+  document.getElementById('modalTitle').textContent=doc.title||'';
   document.getElementById('modalAuthor').textContent=authors;
-  document.getElementById('modalMeta').textContent=[year,pages?pages+' sayfa':'',category,rating].filter(Boolean).join(' · ');
+  document.getElementById('modalMeta').textContent=[year,pages?pages+' sayfa':'',subject,rating].filter(Boolean).join(' · ');
   document.getElementById('scoreSlider').value=7;
   document.getElementById('scoreDisplay').innerHTML='7<span>/10</span>';
   document.getElementById('notesInput').value='';
@@ -174,21 +173,23 @@ function populateListSelect(sel){
 
 async function saveBook(){
   if(!currentBook)return;
-  const item=currentBook;
-  const info=item.volumeInfo||{};
+  const doc=currentBook;
   const score=parseInt(document.getElementById('scoreSlider').value);
   const notes=document.getElementById('notesInput').value.trim();
   const listId=document.getElementById('listSelect').value;
-  const cover=(info.imageLinks?.thumbnail||info.imageLinks?.smallThumbnail||'').replace('http:','https:');
+  const bookId=doc.key?doc.key.replace('/works/',''):(doc.book_id||'');
+  const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-M.jpg':(doc.book_image||'');
+  const authors=(doc.author_name||[]).slice(0,2).join(', ')||(doc.book_author||'');
   const {error}=await sb.from('book_lists').upsert({
-    user_id:currentUser.id,book_id:item.id,list_id:listId,
-    book_title:info.title||'',book_author:(info.authors||[]).slice(0,2).join(', '),
-    book_image:cover,published_year:info.publishedDate?info.publishedDate.slice(0,4):'',
-    categories:info.categories||[],page_count:info.pageCount||0,
+    user_id:currentUser.id,book_id:bookId,list_id:listId,
+    book_title:doc.title||doc.book_title||'',book_author:authors,
+    book_image:cover,published_year:doc.first_publish_year?(doc.first_publish_year+''):(doc.published_year||''),
+    categories:doc.subject?doc.subject.slice(0,3):(doc.categories||[]),
+    page_count:doc.number_of_pages_median||doc.page_count||0,
     score,notes
   },{onConflict:'user_id,book_id'});
   if(error){toast('Error: '+error.message);return;}
-  closeModal();toast('"'+info.title+t('toastAdded'));
+  closeModal();toast('"'+(doc.title||doc.book_title)+t('toastAdded'));
   if(activeListId===listId)renderList(null,currentUser.id,false,activeListId);
   renderListsNav();
 }
@@ -533,7 +534,7 @@ async function importList(event){
     const score=Math.min(10,Math.max(1,parseInt(row[scoreKey])||5));
     const noteKey=Object.keys(row).find(k=>/not|note|comment/i.test(k));
     try{
-      const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(bookTitle)+'&maxResults=1&key=AIzaSyAHePb6lb12dPoqNijdKuYf6BF0ouiDQWg');
+      const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(bookTitle)+'&maxResults=1&key=AIzaSyAGDcIi4P_phJ8qH-JP92m6_VZ_d5ZecL4');
       const d=await r.json();const item=d.items&&d.items[0];
       if(!item){skipped++;continue;}
       const info=item.volumeInfo||{};

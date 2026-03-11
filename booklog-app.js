@@ -106,7 +106,7 @@ async function searchBooks(){
   const res=document.getElementById('searchResults');
   res.innerHTML='<div class="loading"><div class="spinner"></div>'+t('searching')+'</div>';
   try{
-    const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(q)+'&maxResults=20&key=AIzaSyAGDcIi4P_phJ8qH-JP92m6_VZ_d5ZecL4');
+    const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(q)+'&maxResults=20&key=AIzaSyAHePb6lb12dPoqNijdKuYf6BF0ouiDQWg');
     const data=await r.json();
     if(!data.items||!data.items.length){res.innerHTML='<div class="loading">'+t('noResults')+'</div>';return;}
     const {data:added}=await sb.from('book_lists').select('book_id').eq('user_id',currentUser.id);
@@ -533,7 +533,7 @@ async function importList(event){
     const score=Math.min(10,Math.max(1,parseInt(row[scoreKey])||5));
     const noteKey=Object.keys(row).find(k=>/not|note|comment/i.test(k));
     try{
-      const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(bookTitle)+'&maxResults=1&key=AIzaSyAGDcIi4P_phJ8qH-JP92m6_VZ_d5ZecL4');
+      const r=await fetch('https://www.googleapis.com/books/v1/volumes?q='+encodeURIComponent(bookTitle)+'&maxResults=1&key=AIzaSyAHePb6lb12dPoqNijdKuYf6BF0ouiDQWg');
       const d=await r.json();const item=d.items&&d.items[0];
       if(!item){skipped++;continue;}
       const info=item.volumeInfo||{};

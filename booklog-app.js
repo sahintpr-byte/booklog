@@ -142,11 +142,12 @@ async function liveSearchBooks(){
         '<div style="font-size:12px;color:var(--muted)">'+[author,year].filter(Boolean).join(' · ')+'</div></div>';
       item.onmouseenter=()=>item.style.background='var(--surface2)';
       item.onmouseleave=()=>item.style.background='';
-      item.onmousedown=()=>{
+      item.onmousedown=(e)=>{
+        e.preventDefault();
         document.getElementById('searchInput').value=doc.title;
         closeDropdown();
-        // Open modal directly with full doc data instead of searching again
-        openModal(doc);
+        // Fetch full data by work key, not by title search
+        openModalByKey(doc);
       };
       drop.appendChild(item);
     });
@@ -195,19 +196,6 @@ document.getElementById('saveBtn').onclick=saveBook;
 document.getElementById('scoreSlider').oninput=function(){document.getElementById('scoreDisplay').innerHTML=this.value+'<span>/10</span>';};
 
 async function openModal(doc){
-  // If doc came from dropdown (minimal fields), fetch full data first
-  if(doc.key && !doc.number_of_pages_median && !doc.subject){
-    try{
-      const workId=doc.key.replace('/works/','');
-      const r=await fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(doc.title||'')+'&limit=1&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,ratings_average,ratings_count');
-      const data=await r.json();
-      if(data.docs&&data.docs.length){
-        // Merge: keep cover_i from dropdown if full result missing it
-        const full=data.docs[0];
-        doc=Object.assign({},doc,full);
-      }
-    }catch(e){}
-  }
   currentBook=doc;
   const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-L.jpg':'';
   const authors=(doc.author_name||[]).slice(0,2).join(', ')||'';
@@ -235,6 +223,35 @@ function populateListSelect(sel){
     if(l.id===(sel||activeListId))o.selected=true;
     s.appendChild(o);
   });
+}
+
+async function openModalByKey(doc){
+  // Fetch full work details using the work key directly
+  try{
+    const workId=doc.key.replace('/works/','');
+    // Try to get more details from works endpoint
+    const [worksRes, searchRes] = await Promise.all([
+      fetch('https://openlibrary.org'+doc.key+'.json'),
+      fetch('https://openlibrary.org/search.json?q=key:'+workId+'&limit=1&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,ratings_average,ratings_count')
+    ]);
+    const worksData = await worksRes.json();
+    const searchData = await searchRes.json();
+    // Merge data: prefer search result fields, fill gaps from works endpoint
+    let fullDoc = Object.assign({}, doc);
+    if(searchData.docs && searchData.docs.length){
+      fullDoc = Object.assign({}, doc, searchData.docs[0]);
+    }
+    // Ensure cover_i from original doc if missing
+    if(!fullDoc.cover_i && doc.cover_i) fullDoc.cover_i = doc.cover_i;
+    // Get page count from works data if missing
+    if(!fullDoc.number_of_pages_median && worksData.number_of_pages){
+      fullDoc.number_of_pages_median = worksData.number_of_pages;
+    }
+    openModal(fullDoc);
+  } catch(e){
+    // Fallback: open with what we have
+    openModal(doc);
+  }
 }
 
 async function saveBook(){

@@ -112,7 +112,10 @@ function switchView(v){
 document.getElementById('searchBtn').onclick=searchBooks;
 document.getElementById('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){closeDropdown();searchBooks();}});
 document.getElementById('searchInput').addEventListener('input',debounce(liveSearchBooks,400));
-document.getElementById('searchInput').addEventListener('blur',()=>setTimeout(closeDropdown,200));
+document.getElementById('searchInput').addEventListener('blur',()=>{
+  if(!_dropdownClicking) setTimeout(closeDropdown,200);
+});
+let _dropdownClicking=false;
 
 let _searchTimer=null;
 function debounce(fn,ms){return function(...args){clearTimeout(_searchTimer);_searchTimer=setTimeout(()=>fn(...args),ms);};}
@@ -140,13 +143,14 @@ async function liveSearchBooks(){
       item.innerHTML=(cover?'<img src="'+cover+'" style="width:32px;height:46px;object-fit:cover;border-radius:4px;flex-shrink:0">':'<div style="width:32px;height:46px;background:var(--surface2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">📖</div>')+
         '<div style="min-width:0"><div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+doc.title+'</div>'+
         '<div style="font-size:12px;color:var(--muted)">'+[author,year].filter(Boolean).join(' · ')+'</div></div>';
-      item.onmouseenter=()=>item.style.background='var(--surface2)';
-      item.onmouseleave=()=>item.style.background='';
-      item.onmousedown=(e)=>{
+      item.onmouseenter=()=>{item.style.background='var(--surface2)';_dropdownClicking=false;};
+      item.onmouseleave=()=>{item.style.background='';_dropdownClicking=false;};
+      item.onmousedown=()=>{_dropdownClicking=true;};
+      item.onclick=(e)=>{
         e.preventDefault();
+        _dropdownClicking=false;
         document.getElementById('searchInput').value=doc.title;
         closeDropdown();
-        // Fetch full data by work key, not by title search
         openModalByKey(doc);
       };
       drop.appendChild(item);
@@ -226,30 +230,17 @@ function populateListSelect(sel){
 }
 
 async function openModalByKey(doc){
-  // Fetch full work details using the work key directly
+  // doc already has the correct key from dropdown — just fetch ratings and extra fields
   try{
-    const workId=doc.key.replace('/works/','');
-    // Try to get more details from works endpoint
-    const [worksRes, searchRes] = await Promise.all([
-      fetch('https://openlibrary.org'+doc.key+'.json'),
-      fetch('https://openlibrary.org/search.json?q=key:'+workId+'&limit=1&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,ratings_average,ratings_count')
-    ]);
-    const worksData = await worksRes.json();
-    const searchData = await searchRes.json();
-    // Merge data: prefer search result fields, fill gaps from works endpoint
-    let fullDoc = Object.assign({}, doc);
-    if(searchData.docs && searchData.docs.length){
-      fullDoc = Object.assign({}, doc, searchData.docs[0]);
-    }
-    // Ensure cover_i from original doc if missing
-    if(!fullDoc.cover_i && doc.cover_i) fullDoc.cover_i = doc.cover_i;
-    // Get page count from works data if missing
-    if(!fullDoc.number_of_pages_median && worksData.number_of_pages){
-      fullDoc.number_of_pages_median = worksData.number_of_pages;
+    const ratingsRes = await fetch('https://openlibrary.org'+doc.key+'/ratings.json');
+    const ratingsData = await ratingsRes.json();
+    const fullDoc = Object.assign({}, doc);
+    if(ratingsData.summary){
+      fullDoc.ratings_average = ratingsData.summary.average;
+      fullDoc.ratings_count = ratingsData.summary.count;
     }
     openModal(fullDoc);
   } catch(e){
-    // Fallback: open with what we have
     openModal(doc);
   }
 }

@@ -145,7 +145,8 @@ async function liveSearchBooks(){
       item.onmousedown=()=>{
         document.getElementById('searchInput').value=doc.title;
         closeDropdown();
-        searchBooks();
+        // Open modal directly with full doc data instead of searching again
+        openModal(doc);
       };
       drop.appendChild(item);
     });
@@ -193,7 +194,20 @@ document.getElementById('modalCancel').onclick=closeModal;
 document.getElementById('saveBtn').onclick=saveBook;
 document.getElementById('scoreSlider').oninput=function(){document.getElementById('scoreDisplay').innerHTML=this.value+'<span>/10</span>';};
 
-function openModal(doc){
+async function openModal(doc){
+  // If doc came from dropdown (minimal fields), fetch full data first
+  if(doc.key && !doc.number_of_pages_median && !doc.subject){
+    try{
+      const workId=doc.key.replace('/works/','');
+      const r=await fetch('https://openlibrary.org/search.json?q='+encodeURIComponent(doc.title||'')+'&limit=1&fields=key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject,ratings_average,ratings_count');
+      const data=await r.json();
+      if(data.docs&&data.docs.length){
+        // Merge: keep cover_i from dropdown if full result missing it
+        const full=data.docs[0];
+        doc=Object.assign({},doc,full);
+      }
+    }catch(e){}
+  }
   currentBook=doc;
   const cover=doc.cover_i?'https://covers.openlibrary.org/b/id/'+doc.cover_i+'-L.jpg':'';
   const authors=(doc.author_name||[]).slice(0,2).join(', ')||'';
